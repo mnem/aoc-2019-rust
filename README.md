@@ -1,0 +1,3 @@
+# Advent of Code 2019, rust edition.
+
+Let's see if I get through all of them this year...
