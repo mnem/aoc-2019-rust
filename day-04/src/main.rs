@@ -1,5 +1,3 @@
-use common::Puzzle;
-
 fn main() {
     let a = PuzzleRange { lower: 264793, upper: 803935 };
     println!("Possibilities A: {}", a.count_possibilities_a() );
