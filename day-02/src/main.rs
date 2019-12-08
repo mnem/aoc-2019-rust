@@ -1,4 +1,5 @@
 use common::Puzzle;
+use common::computer::Computer;
 use std::str::FromStr;
 
 fn main() {
@@ -30,33 +31,10 @@ impl FromStr for PuzzleData {
 
 impl Puzzle1 {
     fn run_tape(in_a: i32, in_b: i32, in_tape: &Vec<i32>) -> i32 {
-        let mut tape = in_tape.clone();
-        tape[1] = in_a;
-        tape[2] = in_b;
-
-        for i in (0 .. tape.len()).step_by(4) {
-            let opcode = tape[i + 0];
-
-            if opcode == 99 {
-                break;
-            }
-
-            let a_addr = tape[i + 1] as usize;
-            let b_addr = tape[i + 2] as usize;
-            let dst_addr = tape[i + 3] as usize;
-
-            let a = tape[a_addr];
-            let b = tape[b_addr];
-
-            if opcode == 1 {
-                tape[dst_addr] = a + b;
-            } else if opcode == 2 {
-                tape[dst_addr] = a * b;
-            } else {
-                panic!("Something went wrong!");
-            }
-        }
-        return tape[0];
+        let mut computer = Computer::new_with_tape(in_tape);
+        computer.memory.write(1, in_a);
+        computer.memory.write(2, in_b);
+        return computer.run();
     }
 }
 
@@ -96,5 +74,24 @@ impl Puzzle for Puzzle2 {
 
     fn final_result(&mut self) -> String {
         (100 * self.noun + self.verb).to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_puzzle1_works() {
+        let mut a: Puzzle1 =  Default::default();
+        a.run();
+        assert_eq!(3931283, a.result);
+    }
+
+    #[test]
+    fn test_puzzle2_works() {
+        let mut b: Puzzle2 =  Default::default();
+        b.run();
+        assert_eq!(6979.to_string(), b.final_result());
     }
 }

@@ -1,3 +1,5 @@
+pub mod computer;
+
 use std::fs;
 
 pub trait Puzzle {
