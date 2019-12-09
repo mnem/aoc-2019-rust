@@ -2,6 +2,6 @@
 for d in day-*/ ; do
 	pushd $d
 	pwd
-	cargo run
+	cargo run --release
 	popd
 done
