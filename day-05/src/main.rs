@@ -1,5 +1,5 @@
 use common::Puzzle;
-use common::computer::{Computer, Tape};
+use common::computer::{Computer, Tape, Word};
 
 fn main() {
     let mut a = Puzzle1 { result: 0, output: None };
@@ -10,8 +10,8 @@ fn main() {
 }
 
 struct Puzzle1 {
-    result: i32,
-    output: Option<Vec<i32>>,
+    result: Word,
+    output: Option<Vec<Word>>,
 }
 
 impl Puzzle for Puzzle1 {
@@ -30,8 +30,8 @@ impl Puzzle for Puzzle1 {
 }
 
 struct Puzzle2 {
-    result: i32,
-    output: Option<Vec<i32>>,
+    result: Word,
+    output: Option<Vec<Word>>,
 }
 
 impl Puzzle for Puzzle2 {

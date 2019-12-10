@@ -13,9 +13,17 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="510648c5-6f43-492e-8196-ded897688259" name="Default Changelist" comment="">
-      <change afterPath="$PROJECT_DIR$/../day-06/Cargo.toml" afterDir="false" />
-      <change afterPath="$PROJECT_DIR$/../day-06/src/main.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../day-07/.idea/.gitignore" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../day-07/.idea/day-07.iml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../day-07/.idea/misc.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../day-07/.idea/modules.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../day-07/.idea/vcs.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../day-07/Cargo.toml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../day-07/input.txt" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/../day-07/src/main.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../common/src/computer.rs" beforeDir="false" afterPath="$PROJECT_DIR$/../common/src/computer.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/../day-02/src/main.rs" beforeDir="false" afterPath="$PROJECT_DIR$/../day-02/src/main.rs" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/main.rs" beforeDir="false" afterPath="$PROJECT_DIR$/src/main.rs" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -75,6 +83,7 @@
   </component>
   <component name="RustProjectSettings">
     <option name="toolchainHomeDirectory" value="$USER_HOME$/.cargo/bin" />
+    <option name="version" value="2" />
   </component>
   <component name="ServiceViewManager">
     <option name="viewStates">
@@ -96,6 +105,7 @@
       <option name="presentableId" value="Default" />
       <updated>1575660767071</updated>
       <workItem from="1575660768846" duration="6076000" />
+      <workItem from="1576018539195" duration="35000" />
     </task>
     <servers />
   </component>

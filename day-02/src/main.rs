@@ -1,5 +1,5 @@
 use common::Puzzle;
-use common::computer::{Computer, Tape};
+use common::computer::{Computer, Tape, Word};
 
 fn main() {
     let mut a: Puzzle1 =  Default::default();
@@ -11,11 +11,11 @@ fn main() {
 
 #[derive(Default)]
 struct Puzzle1 {
-    result: i32
+    result: Word
 }
 
 impl Puzzle1 {
-    fn run_tape(in_a: i32, in_b: i32, in_tape: &Tape) -> i32 {
+    fn run_tape(in_a: Word, in_b: Word, in_tape: &Tape) -> Word {
         let mut computer = Computer::new_with_tape(in_tape);
         computer.memory.write_direct(1, in_a);
         computer.memory.write_direct(2, in_b);
@@ -37,8 +37,8 @@ impl Puzzle for Puzzle1 {
 
 #[derive(Default)]
 struct Puzzle2 {
-    noun: i32,
-    verb: i32
+    noun: Word,
+    verb: Word
 }
 
 impl Puzzle for Puzzle2 {
