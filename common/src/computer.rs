@@ -1,6 +1,7 @@
 use std::str::FromStr;
 
 pub type Word = i64;
+pub type Reference = i64;
 
 /// An implemntation of an [Intcode](https://adventofcode.com/2019/day/2) computer
 ///
@@ -52,7 +53,7 @@ impl Computer {
     /// Creates a new computer with a halting program
     pub fn new() -> Computer {
         Computer {
-            memory: Memory { ram: vec![OpCode::Halt as Word] },
+            memory: Memory { ram: vec![OpCode::Halt as Word], debug: false },
             cpu: CPU::new(),
             io: IOStream::new(),
             debug: false,
@@ -136,42 +137,89 @@ impl IOStream {
 /// Memory from which to read and write
 pub struct Memory {
     ram: Vec<Word>,
+    debug: bool,
 }
 
 impl Memory {
     /// Reads the current value of the passed location from memory
-    pub fn read_direct(&self, location: usize) -> Word {
-        self.ram[location]
+    pub fn read_direct(&self, location: Reference) -> Word {
+        if self.debug {
+            println!("Reading from {}", location);
+        }
+        if location >= (self.ram.len() as Reference) {
+            if self.debug {
+                println!("Reading out of current bounds, returning 0");
+            }
+            return 0;
+        }
+        assert!(location >= 0);
+        self.ram[location as usize]
     }
 
     /// Writes the passed value to the specified location in memory
-    pub fn write_direct(&mut self, location: usize, value: Word) {
-        self.ram[location] = value;
+    pub fn write_direct(&mut self, location: Reference, value: Word) {
+        if self.debug {
+            println!("Writing {} to {}", value, location);
+        }
+        if location >= (self.ram.len() as Reference) {
+            if self.debug {
+                println!("Reading out of current bounds, growing");
+            }
+            self.ram.resize((location + 1) as usize, 0);
+        }
+        assert!(location >= 0);
+        self.ram[location as usize] = value;
     }
 
     /// Reads the value of the memory slot pointed to by the value in
     /// the passed location
-    pub fn read_indirect(&self, location: usize) -> Word {
-        self.read_direct(self.ram[location] as usize)
+    pub fn read_indirect(&self, location: Reference) -> Word {
+        assert!(location >= 0);
+        self.read_direct(self.ram[location as usize] as Reference)
     }
 
     /// Write the passed value to the slot in pointed to by the value
     /// in the passed location
-    pub fn write_indirect(&mut self, location: usize, value: Word) {
-        self.write_direct(self.ram[location] as usize, value);
+    pub fn write_indirect(&mut self, location: Reference, value: Word) {
+        assert!(location >= 0);
+        self.write_direct(self.ram[location as usize] as Reference, value);
     }
 
-    fn read(&self, location: usize, mode: ParameterMode) -> Word {
+    fn read(&self, location: Reference, mode: ParameterMode, cpu: &CPU) -> Word {
         match mode {
             ParameterMode::Position => self.read_indirect(location),
             ParameterMode::Immediate => self.read_direct(location),
+            ParameterMode::Relative => {
+                let offset = self.read_direct(location);
+                let final_location = offset + cpu.relative_base;
+                if self.debug {
+                    println!("Reading relative. Base {}, offset {}, result {}", cpu.relative_base, offset, final_location);
+                }
+                self.read_direct(final_location)
+            },
         }
+    }
+
+    fn write(&mut self, location: Reference, value: Word, mode: ParameterMode, cpu: &CPU) {
+        match mode {
+            ParameterMode::Position => self.write_indirect(location, value),
+            ParameterMode::Immediate => self.write_direct(location, value),
+            ParameterMode::Relative => {
+                let offset = self.read_direct(location);
+                let final_location = offset + cpu.relative_base;
+                if self.debug {
+                    println!("Reading relative. Base {}, offset {}, result {}", cpu.relative_base, offset, final_location);
+                }
+                self.write_direct(final_location, value)
+            },
+        };
     }
 }
 
 /// A tape representing the initial memory state of an Intcode computer
+#[derive(Debug)]
 pub struct Tape {
-    contents: Vec<Word>
+    pub contents: Vec<Word>
 }
 
 impl FromStr for Tape {
@@ -204,6 +252,8 @@ enum OpCode {
     LessThan,
     Equal,
 
+    AdjustRelativeBase,
+
     Halt,
 }
 
@@ -211,23 +261,27 @@ enum OpCode {
 enum ParameterMode {
     Position,
     Immediate,
+    Relative,
 }
 
 impl ParameterMode {
     fn from_char(char: char) -> ParameterMode {
         match char {
             '1' => ParameterMode::Immediate,
+            '2' => ParameterMode::Relative,
             _   => ParameterMode::Position,
         }
     }
 }
 
 pub struct CPU {
-    instruction_pointer: usize,
+    instruction_pointer: Reference,
     state: CPUState,
+    relative_base: Reference,
+    last_instruction: Option<DecodedInstruction>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 struct OpModes {
     p0_mode: ParameterMode,
     p1_mode: ParameterMode,
@@ -287,7 +341,7 @@ impl FromStr for OpModes {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 struct DecodedInstruction {
     operation: OpCode,
     modes: OpModes,
@@ -295,12 +349,14 @@ struct DecodedInstruction {
 
 impl CPU {
     fn new() -> CPU {
-        CPU { instruction_pointer: 0, state: CPUState::AwaitingInstruction }
+        CPU { instruction_pointer: 0, state: CPUState::AwaitingInstruction, relative_base: 0, last_instruction: None }
     }
 
     fn reset(&mut self) {
         self.instruction_pointer = 0;
         self.state = CPUState::AwaitingInstruction;
+        self.relative_base = 0;
+        self.last_instruction = None;
     }
 
     fn execute_instruction(&mut self, memory: &mut Memory, io: &mut IOStream, debug: bool) -> CPUState {
@@ -310,15 +366,18 @@ impl CPU {
             println!("STEP DECODED: {:?}", op);
         }
 
+        self.last_instruction = Some(op.clone());
+
         match op.operation {
-            OpCode::Add => self.op_add(memory, &op.modes),
-            OpCode::Mul => self.op_mul(memory, &op.modes),
-            OpCode::ConsumeInput => self.op_consume_input(memory, io),
-            OpCode::ProduceOutput => self.op_produce_output(memory, io, &op.modes),
-            OpCode::JumpIfNotZero => self.op_jump_not_zero(memory, &op.modes),
-            OpCode::JumpIfZero => self.op_jump_zero(memory, &op.modes),
-            OpCode::LessThan => self.op_less_than(memory, &op.modes),
-            OpCode::Equal => self.op_equal(memory, &op.modes),
+            OpCode::Add => self.op_add(memory, &op.modes, debug),
+            OpCode::Mul => self.op_mul(memory, &op.modes, debug),
+            OpCode::ConsumeInput => self.op_consume_input(memory, io, &op.modes, debug),
+            OpCode::ProduceOutput => self.op_produce_output(memory, io, &op.modes, debug),
+            OpCode::JumpIfNotZero => self.op_jump_not_zero(memory, &op.modes, debug),
+            OpCode::JumpIfZero => self.op_jump_zero(memory, &op.modes, debug),
+            OpCode::LessThan => self.op_less_than(memory, &op.modes, debug),
+            OpCode::Equal => self.op_equal(memory, &op.modes, debug),
+            OpCode::AdjustRelativeBase => self.op_adjust_relative_base(memory, &op.modes, debug),
 
             OpCode::Halt => CPUState::Halted,
         }
@@ -331,7 +390,7 @@ impl CPU {
 
         self.state = match self.state {
             CPUState::Halted => CPUState::Halted,
-            CPUState::AwaitingInput => self.op_consume_input(memory, io),
+            CPUState::AwaitingInput => self.op_consume_input(memory, io, &self.last_instruction.unwrap().modes),
             CPUState::AwaitingInstruction => self.execute_instruction(memory, io, debug),
         };
 
@@ -348,6 +407,7 @@ impl CPU {
             6 => OpCode::JumpIfZero,
             7 => OpCode::LessThan,
             8 => OpCode::Equal,
+            9 => OpCode::AdjustRelativeBase,
 
             99 => OpCode::Halt,
 
@@ -375,67 +435,81 @@ impl CPU {
         DecodedInstruction { operation, modes }
     }
 
-    fn consume_ip(&mut self) -> usize {
+    fn consume_ip(&mut self) -> Reference {
         self.instruction_pointer += 1;
         self.instruction_pointer - 1
     }
 
-    fn op_add(&mut self, memory: &mut Memory, modes: &OpModes) -> CPUState {
-        let a = memory.read(self.consume_ip(), modes.p0_mode);
-        let b = memory.read(self.consume_ip(), modes.p1_mode);
-        memory.write_indirect(self.consume_ip(), a + b);
+    fn op_add(&mut self, memory: &mut Memory, modes: &OpModes, debug: bool) -> CPUState {
+        let param_a = self.consume_ip();
+        let param_b= self.consume_ip();
+        let param_c = self.consume_ip()
+
+        if debug {
+            println!("a: {}, b: {}, c: {}", param_a, param_b, param_c);
+        }
+
+        let a = memory.read(param_a, modes.p0_mode, &self);
+        let b = memory.read(param_b, modes.p1_mode, &self);
+        let result = a + b;
+
+        if debug {
+            println!("read {}, read {}, writing {}", a, b, result);
+        }
+
+        memory.write_indirect(param_c, result);
 
         CPUState::AwaitingInstruction
     }
 
     fn op_mul(&mut self, memory: &mut Memory, modes: &OpModes) -> CPUState {
-        let a = memory.read(self.consume_ip(), modes.p0_mode);
-        let b = memory.read(self.consume_ip(), modes.p1_mode);
+        let a = memory.read(self.consume_ip(), modes.p0_mode, &self);
+        let b = memory.read(self.consume_ip(), modes.p1_mode, &self);
         memory.write_indirect(self.consume_ip(), a * b);
 
         CPUState::AwaitingInstruction
     }
 
-    fn op_consume_input(&mut self, memory: &mut Memory, io: &mut IOStream) -> CPUState {
+    fn op_consume_input(&mut self, memory: &mut Memory, io: &mut IOStream, modes: &OpModes) -> CPUState {
         let value = io.consume();
         if value.is_none() {
             return CPUState::AwaitingInput;
         }
-        memory.write_indirect(self.consume_ip(), value.unwrap());
+        memory.write(self.consume_ip(), value.unwrap(), modes.p0_mode, &self);
 
         CPUState::AwaitingInstruction
     }
 
     fn op_produce_output(&mut self, memory: &mut Memory, io: &mut IOStream, modes: &OpModes) -> CPUState {
-        let value = memory.read(self.consume_ip(), modes.p0_mode);
+        let value = memory.read(self.consume_ip(), modes.p0_mode, &self);
         io.produce(value);
 
         CPUState::AwaitingInstruction
     }
 
     fn op_jump_not_zero(&mut self, memory: &mut Memory, modes: &OpModes) -> CPUState {
-        let a = memory.read(self.consume_ip(), modes.p0_mode);
-        let b = memory.read(self.consume_ip(), modes.p1_mode);
+        let a = memory.read(self.consume_ip(), modes.p0_mode, &self);
+        let b = memory.read(self.consume_ip(), modes.p1_mode, &self);
         if a != 0 {
-            self.instruction_pointer = b as usize;
+            self.instruction_pointer = b as Reference;
         }
 
         CPUState::AwaitingInstruction
     }
 
     fn op_jump_zero(&mut self, memory: &mut Memory, modes: &OpModes) -> CPUState {
-        let a = memory.read(self.consume_ip(), modes.p0_mode);
-        let b = memory.read(self.consume_ip(), modes.p1_mode);
+        let a = memory.read(self.consume_ip(), modes.p0_mode, &self);
+        let b = memory.read(self.consume_ip(), modes.p1_mode, &self);
         if a == 0 {
-            self.instruction_pointer = b as usize;
+            self.instruction_pointer = b as Reference;
         }
 
         CPUState::AwaitingInstruction
     }
 
     fn op_less_than(&mut self, memory: &mut Memory, modes: &OpModes) -> CPUState {
-        let a = memory.read(self.consume_ip(), modes.p0_mode);
-        let b = memory.read(self.consume_ip(), modes.p1_mode);
+        let a = memory.read(self.consume_ip(), modes.p0_mode, &self);
+        let b = memory.read(self.consume_ip(), modes.p1_mode, &self);
         let output =  if a < b {
             1
         } else {
@@ -447,14 +521,30 @@ impl CPU {
     }
 
     fn op_equal(&mut self, memory: &mut Memory, modes: &OpModes) -> CPUState {
-        let a = memory.read(self.consume_ip(), modes.p0_mode);
-        let b = memory.read(self.consume_ip(), modes.p1_mode);
+        let a = memory.read(self.consume_ip(), modes.p0_mode, &self);
+        let b = memory.read(self.consume_ip(), modes.p1_mode, &self);
         let output =  if a == b {
             1
         } else {
             0
         };
         memory.write_indirect(self.consume_ip(), output);
+
+        CPUState::AwaitingInstruction
+    }
+
+    fn op_adjust_relative_base(&mut self, memory: &mut Memory, modes: &OpModes, debug: bool) -> CPUState {
+        let a = memory.read(self.consume_ip(), modes.p0_mode, &self);
+
+        if debug {
+            print!("Adjusting relative base {} by {} to ", self.relative_base, a);
+        }
+
+        self.relative_base = self.relative_base + a;
+
+        if debug {
+            println!("{}", self.relative_base);
+        }
 
         CPUState::AwaitingInstruction
     }
@@ -633,5 +723,35 @@ mod tests {
         computer.io.add_input(800);
         computer.run();
         assert_eq!(1001, computer.io.output[0]);
+    }
+
+    #[test]
+    fn test_example_day9_1() {
+        let mut computer = Computer::new();
+        let tape = "109,1,204,-1,1001,100,1,100,1008,100,16,101,1006,101,0,99".parse().unwrap();
+
+        computer.load_tape(&tape);
+        computer.run();
+        assert_eq!(tape.contents, computer.io.output);
+    }
+
+    #[test]
+    fn test_example_day9_2() {
+        let mut computer = Computer::new();
+        let tape = "1102,34915192,34915192,7,4,7,99,0".parse().unwrap();
+
+        computer.load_tape(&tape);
+        computer.run();
+        assert_eq!(1219070632396864, computer.io.output[0]);
+    }
+
+    #[test]
+    fn test_example_day9_3() {
+        let mut computer = Computer::new();
+        let tape = "104,1125899906842624,99".parse().unwrap();
+
+        computer.load_tape(&tape);
+        computer.run();
+        assert_eq!(1125899906842624, computer.io.output[0]);
     }
 }
