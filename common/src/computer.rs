@@ -84,12 +84,26 @@ impl Computer {
     /// Runs the code in memory until it halts, returning the
     /// contents of memory location 0 after halting
     pub fn run(&mut self) -> Word {
-        while self.cpu.step(&mut self.memory, &mut self.io, self.debug) == CPUState::AwaitingInstruction { };
+        while self.cpu.step(&mut self.memory, &mut self.io) == CPUState::AwaitingInstruction { };
         self.memory.read_direct(0)
     }
 
     pub fn cpu_state(&self) -> CPUState {
         self.cpu.state
+    }
+
+    pub fn debug_all(&mut self) {
+        self.debug = true;
+        self.cpu.debug = true;
+        self.io.debug = true;
+        self.memory.debug = true;
+    }
+
+    pub fn debug_none(&mut self) {
+        self.debug = true;
+        self.cpu.debug = true;
+        self.io.debug = true;
+        self.memory.debug = true;
     }
 }
 
@@ -121,14 +135,14 @@ impl IOStream {
     fn consume(&mut self) -> Option<Word> {
         let n = self.input.pop();
         if self.debug {
-            println!("> consume {:?}", n);
+            println!("IO: consume {:?}", n);
         }
         return n;
     }
 
     fn produce(&mut self, value: Word) {
         if self.debug {
-            println!("< produce {}", value);
+            println!("IO: produce {}", value);
         }
         self.output.push(value);
     }
@@ -137,18 +151,18 @@ impl IOStream {
 /// Memory from which to read and write
 pub struct Memory {
     ram: Vec<Word>,
-    debug: bool,
+    pub debug: bool,
 }
 
 impl Memory {
     /// Reads the current value of the passed location from memory
     pub fn read_direct(&self, location: Reference) -> Word {
         if self.debug {
-            println!("Reading from {}", location);
+            println!("MEMORY: reading from {}", location);
         }
         if location >= (self.ram.len() as Reference) {
             if self.debug {
-                println!("Reading out of current bounds, returning 0");
+                println!("MEMORY: reading out of current bounds, returning 0");
             }
             return 0;
         }
@@ -159,11 +173,11 @@ impl Memory {
     /// Writes the passed value to the specified location in memory
     pub fn write_direct(&mut self, location: Reference, value: Word) {
         if self.debug {
-            println!("Writing {} to {}", value, location);
+            println!("MEMORY: writing {} to {}", value, location);
         }
         if location >= (self.ram.len() as Reference) {
             if self.debug {
-                println!("Reading out of current bounds, growing");
+                println!("MEMORY: writing out of current bounds, growing");
             }
             self.ram.resize((location + 1) as usize, 0);
         }
@@ -186,6 +200,10 @@ impl Memory {
     }
 
     fn read(&self, location: Reference, mode: ParameterMode, cpu: &CPU) -> Word {
+        if self.debug {
+            println!("MEMORY: reading from {} with mode {:?}", location, mode);
+        }
+
         match mode {
             ParameterMode::Position => self.read_indirect(location),
             ParameterMode::Immediate => self.read_direct(location),
@@ -193,7 +211,7 @@ impl Memory {
                 let offset = self.read_direct(location);
                 let final_location = offset + cpu.relative_base;
                 if self.debug {
-                    println!("Reading relative. Base {}, offset {}, result {}", cpu.relative_base, offset, final_location);
+                    println!("MEMORY: reading relative. Base {}, offset {}, result {}", cpu.relative_base, offset, final_location);
                 }
                 self.read_direct(final_location)
             },
@@ -201,6 +219,10 @@ impl Memory {
     }
 
     fn write(&mut self, location: Reference, value: Word, mode: ParameterMode, cpu: &CPU) {
+        if self.debug {
+            println!("MEMORY: writing {} to {} with mode {:?}", value, location, mode);
+        }
+
         match mode {
             ParameterMode::Position => self.write_indirect(location, value),
             ParameterMode::Immediate => self.write_direct(location, value),
@@ -208,7 +230,7 @@ impl Memory {
                 let offset = self.read_direct(location);
                 let final_location = offset + cpu.relative_base;
                 if self.debug {
-                    println!("Reading relative. Base {}, offset {}, result {}", cpu.relative_base, offset, final_location);
+                    println!("MEMORY: writing relative. Base {}, offset {}, result {}", cpu.relative_base, offset, final_location);
                 }
                 self.write_direct(final_location, value)
             },
@@ -279,14 +301,15 @@ pub struct CPU {
     state: CPUState,
     relative_base: Reference,
     last_instruction: Option<DecodedInstruction>,
+    pub debug: bool,
 }
 
 #[derive(Debug, Copy, Clone)]
 struct OpModes {
     p0_mode: ParameterMode,
     p1_mode: ParameterMode,
-//    p2_mode: ParameterMode,
-//    p3_mode: ParameterMode,
+    p2_mode: ParameterMode,
+    p3_mode: ParameterMode,
 }
 
 impl OpModes {
@@ -294,8 +317,8 @@ impl OpModes {
         OpModes {
             p0_mode: ParameterMode::Position,
             p1_mode: ParameterMode::Position,
-//            p2_mode: ParameterMode::Position,
-//            p3_mode: ParameterMode::Position,
+            p2_mode: ParameterMode::Position,
+            p3_mode: ParameterMode::Position,
         }
     }
 }
@@ -308,32 +331,32 @@ impl FromStr for OpModes {
             4 => OpModes {
                 p0_mode: ParameterMode::from_char(s.chars().nth(3).unwrap()),
                 p1_mode: ParameterMode::from_char(s.chars().nth(2).unwrap()),
-//                p2_mode: ParameterMode::from_char(s.chars().nth(1).unwrap()),
-//                p3_mode: ParameterMode::from_char(s.chars().nth(0).unwrap()),
+                p2_mode: ParameterMode::from_char(s.chars().nth(1).unwrap()),
+                p3_mode: ParameterMode::from_char(s.chars().nth(0).unwrap()),
             },
             3 => OpModes {
                 p0_mode: ParameterMode::from_char(s.chars().nth(2).unwrap()),
                 p1_mode: ParameterMode::from_char(s.chars().nth(1).unwrap()),
-//                p2_mode: ParameterMode::from_char(s.chars().nth(0).unwrap()),
-//                p3_mode: ParameterMode::Position,
+                p2_mode: ParameterMode::from_char(s.chars().nth(0).unwrap()),
+                p3_mode: ParameterMode::Position,
             },
             2 => OpModes {
                 p0_mode: ParameterMode::from_char(s.chars().nth(1).unwrap()),
                 p1_mode: ParameterMode::from_char(s.chars().nth(0).unwrap()),
-//                p2_mode: ParameterMode::Position,
-//                p3_mode: ParameterMode::Position,
+                p2_mode: ParameterMode::Position,
+                p3_mode: ParameterMode::Position,
             },
             1 => OpModes {
                 p0_mode: ParameterMode::from_char(s.chars().nth(0).unwrap()),
                 p1_mode: ParameterMode::Position,
-//                p2_mode: ParameterMode::Position,
-//                p3_mode: ParameterMode::Position,
+                p2_mode: ParameterMode::Position,
+                p3_mode: ParameterMode::Position,
             },
             _ => OpModes {
                 p0_mode: ParameterMode::Position,
                 p1_mode: ParameterMode::Position,
-//                p2_mode: ParameterMode::Position,
-//                p3_mode: ParameterMode::Position,
+                p2_mode: ParameterMode::Position,
+                p3_mode: ParameterMode::Position,
             },
         };
 
@@ -349,7 +372,7 @@ struct DecodedInstruction {
 
 impl CPU {
     fn new() -> CPU {
-        CPU { instruction_pointer: 0, state: CPUState::AwaitingInstruction, relative_base: 0, last_instruction: None }
+        CPU { instruction_pointer: 0, state: CPUState::AwaitingInstruction, relative_base: 0, last_instruction: None, debug: false }
     }
 
     fn reset(&mut self) {
@@ -359,40 +382,50 @@ impl CPU {
         self.last_instruction = None;
     }
 
-    fn execute_instruction(&mut self, memory: &mut Memory, io: &mut IOStream, debug: bool) -> CPUState {
+    fn execute_instruction(&mut self, memory: &mut Memory, io: &mut IOStream) -> CPUState {
         let location = self.consume_ip();
-        let op = self.decode(memory.read_direct(location), debug);
-        if debug {
-            println!("STEP DECODED: {:?}", op);
+        let op = self.decode(memory.read_direct(location));
+        if self.debug {
+            println!("CPU: STEP DECODED: {:?}", op);
         }
 
         self.last_instruction = Some(op.clone());
 
         match op.operation {
-            OpCode::Add => self.op_add(memory, &op.modes, debug),
-            OpCode::Mul => self.op_mul(memory, &op.modes, debug),
-            OpCode::ConsumeInput => self.op_consume_input(memory, io, &op.modes, debug),
-            OpCode::ProduceOutput => self.op_produce_output(memory, io, &op.modes, debug),
-            OpCode::JumpIfNotZero => self.op_jump_not_zero(memory, &op.modes, debug),
-            OpCode::JumpIfZero => self.op_jump_zero(memory, &op.modes, debug),
-            OpCode::LessThan => self.op_less_than(memory, &op.modes, debug),
-            OpCode::Equal => self.op_equal(memory, &op.modes, debug),
-            OpCode::AdjustRelativeBase => self.op_adjust_relative_base(memory, &op.modes, debug),
+            OpCode::Add => self.op_add(memory, &op.modes),
+            OpCode::Mul => self.op_mul(memory, &op.modes),
+            OpCode::ConsumeInput => self.op_consume_input(memory, io, &op.modes),
+            OpCode::ProduceOutput => self.op_produce_output(memory, io, &op.modes),
+            OpCode::JumpIfNotZero => self.op_jump_not_zero(memory, &op.modes),
+            OpCode::JumpIfZero => self.op_jump_zero(memory, &op.modes),
+            OpCode::LessThan => self.op_less_than(memory, &op.modes),
+            OpCode::Equal => self.op_equal(memory, &op.modes),
+            OpCode::AdjustRelativeBase => self.op_adjust_relative_base(memory, &op.modes),
 
-            OpCode::Halt => CPUState::Halted,
+            OpCode::Halt => {
+                if self.debug {
+                    println!("CPU: halting");
+                }
+                CPUState::Halted
+            },
         }
     }
 
-    fn step(&mut self, memory: &mut Memory, io: &mut IOStream, debug: bool) -> CPUState {
-        if debug {
-            println!("STEP STATE: {:?}", self.state);
+    fn step(&mut self, memory: &mut Memory, io: &mut IOStream) -> CPUState {
+        if self.debug {
+            println!("CPU: STEP STATE: {:?}", self.state);
         }
 
+        let old_state = self.state;
         self.state = match self.state {
             CPUState::Halted => CPUState::Halted,
             CPUState::AwaitingInput => self.op_consume_input(memory, io, &self.last_instruction.unwrap().modes),
-            CPUState::AwaitingInstruction => self.execute_instruction(memory, io, debug),
+            CPUState::AwaitingInstruction => self.execute_instruction(memory, io),
         };
+
+        if self.debug && old_state != self.state {
+            println!("CPU: state changed from {:?} to {:?}", old_state, self.state);
+        }
 
         self.state
     }
@@ -415,9 +448,9 @@ impl CPU {
         }
     }
 
-    fn decode(&self, instruction: Word, debug: bool) -> DecodedInstruction {
-        if debug {
-            println!("DECODE: {}", instruction);
+    fn decode(&self, instruction: Word) -> DecodedInstruction {
+        if self.debug {
+            println!("CPU: DECODE: {}", instruction);
         }
 
         let s = instruction.to_string();
@@ -440,109 +473,228 @@ impl CPU {
         self.instruction_pointer - 1
     }
 
-    fn op_add(&mut self, memory: &mut Memory, modes: &OpModes, debug: bool) -> CPUState {
+    fn op_add(&mut self, memory: &mut Memory, modes: &OpModes) -> CPUState {
         let param_a = self.consume_ip();
         let param_b= self.consume_ip();
-        let param_c = self.consume_ip()
+        let param_c = self.consume_ip();
 
-        if debug {
-            println!("a: {}, b: {}, c: {}", param_a, param_b, param_c);
+        if self.debug {
+            println!("CPU: a: {}, b: {}, c: {}", param_a, param_b, param_c);
         }
 
         let a = memory.read(param_a, modes.p0_mode, &self);
         let b = memory.read(param_b, modes.p1_mode, &self);
         let result = a + b;
 
-        if debug {
-            println!("read {}, read {}, writing {}", a, b, result);
+        if self.debug {
+            println!("CPU: read {}, read {}, writing {}", a, b, result);
         }
 
-        memory.write_indirect(param_c, result);
+        memory.write(param_c, result,modes.p2_mode, &self);
 
         CPUState::AwaitingInstruction
     }
 
     fn op_mul(&mut self, memory: &mut Memory, modes: &OpModes) -> CPUState {
-        let a = memory.read(self.consume_ip(), modes.p0_mode, &self);
-        let b = memory.read(self.consume_ip(), modes.p1_mode, &self);
-        memory.write_indirect(self.consume_ip(), a * b);
+        let param_a = self.consume_ip();
+        let param_b= self.consume_ip();
+        let param_c = self.consume_ip();
+
+        if self.debug {
+            println!("CPU: a: {}, b: {}, c: {}", param_a, param_b, param_c);
+        }
+
+        let a = memory.read(param_a, modes.p0_mode, &self);
+        let b = memory.read(param_b, modes.p1_mode, &self);
+        let result = a * b;
+
+        if self.debug {
+            println!("CPU: read {}, read {}, writing {}", a, b, result);
+        }
+
+        memory.write(param_c, result, modes.p2_mode, &self);
 
         CPUState::AwaitingInstruction
     }
 
     fn op_consume_input(&mut self, memory: &mut Memory, io: &mut IOStream, modes: &OpModes) -> CPUState {
         let value = io.consume();
+
         if value.is_none() {
+            if self.debug {
+                println!("CPU: no value to consume, waiting");
+            }
             return CPUState::AwaitingInput;
         }
-        memory.write(self.consume_ip(), value.unwrap(), modes.p0_mode, &self);
+
+        let dest = self.consume_ip();
+
+        if self.debug {
+            println!("CPU: consumed {}, writing to {}", value.unwrap(), dest);
+        }
+
+        memory.write(dest, value.unwrap(), modes.p0_mode, &self);
 
         CPUState::AwaitingInstruction
     }
 
     fn op_produce_output(&mut self, memory: &mut Memory, io: &mut IOStream, modes: &OpModes) -> CPUState {
-        let value = memory.read(self.consume_ip(), modes.p0_mode, &self);
+        let source = self.consume_ip();
+        let value = memory.read(source, modes.p0_mode, &self);
+
+        if self.debug {
+            println!("CPU: read from {}, producing {}", source, value);
+        }
+
         io.produce(value);
 
         CPUState::AwaitingInstruction
     }
 
     fn op_jump_not_zero(&mut self, memory: &mut Memory, modes: &OpModes) -> CPUState {
-        let a = memory.read(self.consume_ip(), modes.p0_mode, &self);
-        let b = memory.read(self.consume_ip(), modes.p1_mode, &self);
+        let param_a = self.consume_ip();
+        let param_b = self.consume_ip();
+
+        if self.debug {
+            println!("CPU: a: {}, b: {}", param_a, param_b);
+        }
+
+        let a = memory.read(param_a, modes.p0_mode, &self);
+        let b = memory.read(param_b, modes.p1_mode, &self);
+
+        if self.debug {
+            println!("CPU: read {}, read {}", a, b)
+        }
+
         if a != 0 {
+            if self.debug {
+                println!("CPU: adjusting IP to {} as {} != 0", b, a);
+            }
+
             self.instruction_pointer = b as Reference;
+        } else if self.debug {
+            println!("CPU: not adjusting IP as {} == 0", a);
         }
 
         CPUState::AwaitingInstruction
     }
 
     fn op_jump_zero(&mut self, memory: &mut Memory, modes: &OpModes) -> CPUState {
-        let a = memory.read(self.consume_ip(), modes.p0_mode, &self);
-        let b = memory.read(self.consume_ip(), modes.p1_mode, &self);
+        let param_a = self.consume_ip();
+        let param_b = self.consume_ip();
+
+        if self.debug {
+            println!("CPU: a: {}, b: {}", param_a, param_b);
+        }
+
+        let a = memory.read(param_a, modes.p0_mode, &self);
+        let b = memory.read(param_b, modes.p1_mode, &self);
+
+        if self.debug {
+            println!("CPU: read {}, read {}", a, b)
+        }
+
         if a == 0 {
+            if self.debug {
+                println!("CPU: adjusting IP to {} as {} == 0", b, a);
+            }
+
             self.instruction_pointer = b as Reference;
+        } else if self.debug {
+            println!("CPU: not adjusting IP as {} != 0", a);
         }
 
         CPUState::AwaitingInstruction
     }
 
     fn op_less_than(&mut self, memory: &mut Memory, modes: &OpModes) -> CPUState {
-        let a = memory.read(self.consume_ip(), modes.p0_mode, &self);
-        let b = memory.read(self.consume_ip(), modes.p1_mode, &self);
+        let param_a = self.consume_ip();
+        let param_b= self.consume_ip();
+        let param_c = self.consume_ip();
+
+        if self.debug {
+            println!("CPU: a: {}, b: {}, c: {}", param_a, param_b, param_c);
+        }
+
+        let a = memory.read(param_a, modes.p0_mode, &self);
+        let b = memory.read(param_b, modes.p1_mode, &self);
+
+        if self.debug {
+            println!("CPU: read {}, read {}",a, b);
+        }
+
         let output =  if a < b {
+            if self.debug {
+                println!("CPU: {} < {}", a, b)
+            }
+
             1
         } else {
+            if self.debug {
+                println!("CPU: {} >= {}", a, b)
+            }
+
             0
         };
-        memory.write_indirect(self.consume_ip(), output);
+
+        if self.debug {
+            println!("CPU: writing {} to {}", output, param_c);
+        }
+
+        memory.write(param_c, output, modes.p2_mode, &self);
 
         CPUState::AwaitingInstruction
     }
 
     fn op_equal(&mut self, memory: &mut Memory, modes: &OpModes) -> CPUState {
-        let a = memory.read(self.consume_ip(), modes.p0_mode, &self);
-        let b = memory.read(self.consume_ip(), modes.p1_mode, &self);
+        let param_a = self.consume_ip();
+        let param_b= self.consume_ip();
+        let param_c = self.consume_ip();
+
+        if self.debug {
+            println!("CPU: a: {}, b: {}, c: {}", param_a, param_b, param_c);
+        }
+
+        let a = memory.read(param_a, modes.p0_mode, &self);
+        let b = memory.read(param_b, modes.p1_mode, &self);
+
+        if self.debug {
+            println!("CPU: read {}, read {}",a, b);
+        }
+
         let output =  if a == b {
+            if self.debug {
+                println!("CPU: {} == {}", a, b)
+            }
+
             1
         } else {
+            if self.debug {
+                println!("CPU: {} != {}", a, b)
+            }
+
             0
         };
-        memory.write_indirect(self.consume_ip(), output);
+
+        if self.debug {
+            println!("CPU: writing {} to {}", output, param_c);
+        }
+
+        memory.write(param_c, output, modes.p2_mode, &self);
 
         CPUState::AwaitingInstruction
     }
 
-    fn op_adjust_relative_base(&mut self, memory: &mut Memory, modes: &OpModes, debug: bool) -> CPUState {
+    fn op_adjust_relative_base(&mut self, memory: &mut Memory, modes: &OpModes) -> CPUState {
         let a = memory.read(self.consume_ip(), modes.p0_mode, &self);
 
-        if debug {
-            print!("Adjusting relative base {} by {} to ", self.relative_base, a);
+        if self.debug {
+            print!("CPU: adjusting relative base {} by {} to ", self.relative_base, a);
         }
 
         self.relative_base = self.relative_base + a;
 
-        if debug {
+        if self.debug {
             println!("{}", self.relative_base);
         }
 
